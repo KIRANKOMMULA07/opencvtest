@@ -1,52 +1,46 @@
-from flask import Flask, Response, render_template
 import cv2
+from flask import Flask, render_template, Response
 import urllib.request
 
 app = Flask(__name__)
 
-# Function to generate frames from an external video source
-def generate_frames():
-    # Replace 'your_external_video_source_url' with the URL of your external video source
-    url = 'https://vdo.ninja/?view=fFSDisK'
+# URL of the online video stream
+video_url = "https://vdo.ninja/?view=t5mGjyH"
 
-    # Open the video stream
-    stream = urllib.request.urlopen(url)
-
-    # Create a VideoCapture object to read frames from the video stream
-    cap = cv2.VideoCapture()
-    cap.open(stream)
-
-    # Check if the video stream is opened correctly
-    if not cap.isOpened():
-        print("Error: Could not open video stream")
-        return
-
+# Function to fetch frames from the video stream
+def get_frames():
+    stream = urllib.request.urlopen(video_url)
+    bytes = bytes()
     while True:
-        # Read a frame from the video stream
-        ret, frame = cap.read()
-        if not ret:
-            break
+        bytes += stream.read(1024)
+        a = bytes.find(b'\xff\xd8')
+        b = bytes.find(b'\xff\xd9')
+        if a != -1 and b != -1:
+            jpg = bytes[a:b + 2]
+            bytes = bytes[b + 2:]
+            frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+            yield frame
 
-        # Encode the frame to JPEG format
+# Function to generate video frames
+def generate_frames():
+    for frame in get_frames():
+        # Encode the frame in JPEG format
         ret, buffer = cv2.imencode('.jpg', frame)
-        frame = buffer.tobytes()
+        # Convert the frame into bytes
+        frame_bytes = buffer.tobytes()
+        # Yield the frame in byte format
+        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-        # Yield the frame in a multipart response
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
-    # Release the video stream
-    cap.release()
-
-# Route to render the index.html template
+# Route to the home page
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# Route to stream video frames
+# Route to video feed
 @app.route('/video_feed')
 def video_feed():
+    # Return the response generated along with the specific media type (mime type)
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
